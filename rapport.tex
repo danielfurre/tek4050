@@ -1,0 +1,837 @@
+% Definering av en omfattende LaTeX-preamble
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[norsk]{babel}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{tocloft}
+\usepackage{listings}
+\usepackage{graphicx}
+% Oppsett av sidemarg
+\geometry{margin=2.5cm}
+% Konfigurering av seksjonsnummerering
+\setcounter{secnumdepth}{3}
+% Oppsett av innholdsfortegnelse
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+% Definering av teoremmiljø
+\theoremstyle{plain}
+\newtheorem{theorem}{Teorem}[section]
+% Velger Latin Modern font
+\usepackage{lmodern}
+% Oppsett av hyperlenker
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+}
+% Oppsett for kodevisning
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue}\bfseries,
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black}\itshape,
+    numbers=left,
+    numberstyle=\tiny,
+    stepnumber=1,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    frame=single,
+    breaklines=true,
+    breakatwhitespace=true,
+    tabsize=4
+}
+% Tittel og forfatter
+\title{TEK4050: Obligatorisk Oppgave 2}
+\author{Daniel Furre}
+\date{Mai 2025}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\clearpage
+
+\section{Innledning}
+Denne rapporten presenterer løsningen på de to første oppgavene i TEK4050s obligatoriske oppgave 2. Oppgaven omhandler et stokastisk kontinuerlig-diskret system som modellerer en vogn drevet av en likestrømsmotor. Systemets tilstander er vognens posisjon, hastighet og motorens armaturstrøm. Dynamikken inkluderer friksjon, motorrespons og støy i strømforsyning og målinger.
+\\\\
+Systemet er beskrevet av:
+\begin{align}
+\dot{x} &= F x + L u + G v, \label{eq:state_eq} \\
+z_k &= H x_k + w_k, \label{eq:meas_eq} \\
+x_0 &\sim \mathcal{N}(0, \hat{P}_0), \quad v \sim \mathcal{N}(0, \hat{Q} \delta(t-\tau)), \quad w_k \sim \mathcal{N}(0, R \delta_{kl}), \label{eq:noise_dist}
+\end{align}
+der \(x = [x_1, x_2, x_3]^T\) er posisjon, hastighet og armaturstrøm. Matrisene er:
+\begin{align*}
+F &= \begin{bmatrix}
+0 & 1 & 0 \\
+0 & -\frac{1}{T_2} & \frac{1}{T_2} \\
+0 & 0 & -\frac{1}{T_3}
+\end{bmatrix}, \quad
+L = \begin{bmatrix}
+0 \\ 0 \\ \frac{1}{T_3}
+\end{bmatrix}, \quad
+G = \begin{bmatrix}
+0 \\ 0 \\ 1
+\end{bmatrix}, \quad
+H = \begin{bmatrix}
+1 & 0 & 0
+\end{bmatrix},
+\end{align*}
+med \(T_2 = \SI{5}{\second}\), \(T_3 = \SI{1}{\second}\), \(\hat{P}_0 = \text{diag}(1, 0.01, 0.01)\), \(\hat{Q} = 0.02\), \(R = 1\), \(t_0 = \SI{0}{\second}\), \(t_f = \SI{100}{\second}\).
+\\\\
+Matrisen \(F\) beskriver dynamikken:
+- \(\dot{x}_1 = x_2\): Posisjon endres med hastighet.
+- \(\dot{x}_2 = -\frac{1}{T_2} x_2 + \frac{1}{T_2} x_3\): Hastighet påvirkes av friksjon og motorens kraft.
+- \(\dot{x}_3 = -\frac{1}{T_3} x_3 + \frac{1}{T_3} u\): Armaturstrøm drives av kontrollinngang \(u\).
+
+\(G\) viser at prosess-støy \(v\) kun påvirker armaturstrømmen. \(H\) indikerer at kun posisjonen måles, med målestøy \(w_k\).
+\clearpage
+\section{Diskretisering}
+\subsection{Teori og metode}
+For å implementere systemet i en digital beregningsalgoritme må de kontinuerlige systemligningene diskretiseres. Vi ønsker å finne en diskret representasjon på formen:
+\begin{equation}
+x_{k+1} = \Phi x_k + \Lambda u_k + \Gamma v_k, \quad v_k \sim \mathcal{N}(0, \delta_{kl}Q),
+\end{equation}
+der $\Phi$, $\Lambda$ og $\Gamma$ er diskrete systemmatriser, og $Q$ er kovariansmatrisen for diskret støy. Diskretiseringen gjøres med tidsskritt $\Delta t = \SI{0.01}{\second}$.
+
+\subsubsection{Deterministisk diskretisering}
+For den deterministiske delen av systemet, $\dot{x} = Fx + Lu$, er den eksakte diskretiseringen gitt ved:
+\begin{align}
+\Phi &= e^{F\Delta t} \\
+\Lambda &= \int_0^{\Delta t} e^{F\tau}L\,d\tau
+\end{align}
+
+Denne integrasjonen kan beregnes effektivt ved å utvide systemmatrisene til en større matrise og bruke matrise-eksponentiering:
+\begin{equation}
+\tilde{F} = \begin{bmatrix}
+F & L \\
+0 & 0
+\end{bmatrix}, \quad
+e^{\tilde{F} \Delta t} = \begin{bmatrix}
+\Phi & \Lambda \\
+0 & I
+\end{bmatrix}
+\end{equation}
+
+Vi kan da ekstrahere $\Phi$ og $\Lambda$ fra det beregnede matrise-eksponentialet.
+
+\subsubsection{Stokastisk diskretisering}
+For den stokastiske delen må vi finne den diskrete støy-kovariansmatrisen $S = \Gamma Q \Gamma^T$ som representerer den integrerte effekten av kontinuerlig prosesstøy over et tidsskritt. Den eksakte løsningen er:
+\begin{equation}
+S = \int_0^{\Delta t} e^{F\tau}G\hat{Q}G^Te^{F^T\tau}\,d\tau
+\end{equation}
+
+Denne integrasjonen kan også gjennomføres ved matrise-eksponentiering av en utvidet matrise:
+\begin{equation}
+\tilde{F} = \begin{bmatrix}
+F & G\hat{Q}G^T \\
+0 & -F^T
+\end{bmatrix}, \quad
+e^{\tilde{F} \Delta t} = \begin{bmatrix}
+\Phi_{11} & \Phi_{12} \\
+0 & \Phi_{22}
+\end{bmatrix}
+\end{equation}
+
+Da er $S = \Phi_{12}\Phi_{22}^{-1}$. For å finne $\Gamma$ slik at $S = \Gamma Q \Gamma^T$, bruker vi Cholesky-dekomponering av $S$, ettersom $Q$ i dette tilfellet er:
+\begin{equation}
+Q = \begin{bmatrix}
+0 & 0 & 0 \\
+0 & 0 & 0 \\
+0 & 0 & \hat{Q}
+\end{bmatrix}
+\end{equation}
+
+\subsection{Implementasjon}
+Nedenfor vises implementasjonen av diskretiseringsfunksjonene i Python:
+
+\begin{lstlisting}[language=Python, caption=Implementasjon av diskretisering]
+def c2d_deterministic(F, L, dt):
+    """Convert continuous deterministic system matrices to discrete."""
+    n = F.shape[0]
+    F_aug = np.block([[F, L], [np.zeros((1, n)), 0]])
+    exp_F_aug = expm(F_aug * dt)
+    Phi = exp_F_aug[:n, :n]
+    Lambda = exp_F_aug[:n, n:]
+    return Phi, Lambda
+
+def c2d_stochastic(F, G, Q_hat, dt):
+    """Convert continuous stochastic system matrices to discrete."""
+    n = F.shape[0]
+    GQG = G * Q_hat * G.T
+    F1 = np.block([[F, GQG], [np.zeros((n, n)), -F.T]])
+    exp_F1 = expm(F1 * dt)
+    Fi12 = exp_F1[:n, n:]
+    Fi22 = exp_F1[n:, n:]
+    S = Fi12 @ np.linalg.inv(Fi22)
+    Ga = cholesky(S, lower=False)
+    return Ga
+
+def cp2dpS(F, G, Q_hat, dt):
+    """Compute discrete process noise covariance matrix S."""
+    n = F.shape[0]
+    GQG = G * Q_hat * G.T
+    F1 = np.block([[F, GQG], [np.zeros((n, n)), -F.T]])
+    exp_F1 = expm(F1 * dt)
+    Fi12 = exp_F1[:n, n:]
+    Fi22 = exp_F1[n:, n:]
+    S = Fi12 @ np.linalg.inv(Fi22)
+    return S
+
+# Compute discrete matrices with system parameters
+T2, T3 = 5.0, 1.0
+dt = 0.01
+Q_hat = 2 * 0.1**2
+
+F = np.array([[0, 1, 0],
+              [0, -1/T2, 1/T2],
+              [0, 0, -1/T3]])
+L = np.array([[0], [0], [1/T3]])
+G = np.array([[0], [0], [1]])
+\end{lstlisting}
+\clearpage
+Funksjonene implementerer den teoretiske metoden beskrevet ovenfor. Den første funksjonen, \texttt{c2d\_deterministic}, beregner $\Phi$ og $\Lambda$ ved å eksponentiere den utvidede matrisen $\tilde{F}$. De to andre funksjonene beregner henholdsvis $\Gamma$ og $S$ ved hjelp av lignende matrise-operasjoner.
+\\\\
+\subsection{Resultater og diskusjon}
+Beregningene ga følgende diskrete systemmatriser:
+
+\begin{align*}
+\Phi &= \begin{bmatrix}
+1.000000 & 0.009990 & 0.000010 \\
+0.000000 & 0.998002 & 0.001988 \\
+0.000000 & 0.000000 & 0.990050
+\end{bmatrix} \\
+\Lambda &= \begin{bmatrix}
+0.000000 \\
+0.000010 \\
+0.009950
+\end{bmatrix} \\
+\Gamma &= \begin{bmatrix}
+0.000000 & 0.000016 & 0.010466 \\
+0.000000 & 0.000004 & 0.008142 \\
+0.000000 & 0.000000 & 0.004711
+\end{bmatrix} \\
+S &= \begin{bmatrix}
+0.000002 & 0.000002 & 0.000001 \\
+0.000002 & 0.000001 & 0.000001 \\
+0.000001 & 0.000001 & 0.000000
+\end{bmatrix}
+\end{align*}
+\\\\
+Fra disse resultatene kan vi trekke følgende innsikter:
+
+\begin{itemize}
+    \item $\Phi$ matrisens struktur viser at tilstandene etter et tidssteg er nært relatert til de opprinnelige tilstandene. Diagonalelementene nær 1 indikerer at systemet endrer seg langsomt over det korte tidssteget på 0.01 sekunder.
+    
+    \item $\Lambda$ viser at kontrollsignalet $u$ primært påvirker armaturstrømmen (tredje tilstand), med mindre direkte effekt på hastighet og nesten ingen direkte effekt på posisjon innenfor et enkelt tidssteg.
+    
+    \item $\Gamma$ matrisens struktur avslører et interessant mønster: selv om prosesstøy kun direkte påvirker armaturstrømmen i den kontinuerlige modellen, viser den diskretiserte støymatrisen at støyen propagerer til alle tilstander. Dette reflekterer hvordan støy sprer seg gjennom systemdynamikken over tidssteget.
+    
+    \item $S$ matrisen bekrefter denne effekten og viser de resulterende kovariansene mellom tilstandene på grunn av prosesstøy.
+\end{itemize}
+
+\clearpage
+\section{Simulering av det stokastiske systemet}
+\subsection{Teori og metode}
+I denne delen skal vi simulere både den deterministiske og den stokastiske versjonen av systemet. Systemet er nå på diskret form:
+\\\\
+\begin{equation}
+x_{k+1} = \Phi x_k + \Lambda u_k + \Gamma v_k, \quad v_k \sim \mathcal{N}(0, \hat{Q})
+\end{equation}
+\\\\
+Vi bruker en konstant kontrollinngang $u = 1$ og simulerer systemet fra $t_0 = 0$ til $t_f = 100$ sekunder med tidssteg $\Delta t = 0.01$ sekunder, som gir totalt 10 000 simuleringssteg. Initialtilstanden er satt til $x_0 = [0, 0, 0]^T$.
+
+For den deterministiske simuleringen setter vi $v_k = 0$, som gjør at systemet følger de deterministiske dynamikkene uten påvirkning fra tilfeldig støy. For den stokastiske simuleringen trekker vi tilfeldige støyverdier fra en normalfordeling med varians $\hat{Q}$ for hvert tidssteg.
+\\\\
+\subsubsection{Steady-state-analyse}
+Før vi utfører simulering, er det nyttig å beregne systemets forventede steady-state-verdier. I steady-state ($\dot{x} = 0$, $v = 0$) har vi $Fx + Lu = 0$. Dette gir:
+\\\\
+\begin{align}
+-\frac{1}{T_3}x_3 + \frac{1}{T_3}u &= 0 \quad \Rightarrow \quad x_3 = u = 1 \\
+-\frac{1}{T_2}x_2 + \frac{1}{T_2}x_3 &= 0 \quad \Rightarrow \quad x_2 = x_3 = 1
+\end{align}
+
+Vi forventer derfor at hastigheten $x_2$ vil nå en steady-state-verdi på cirka 1 m/s, og at posisjonen $x_1$ vil vokse lineært med tiden etter at hastigheten når steady-state.
+\clearpage
+\subsection{Implementasjon}
+Nedenfor er implementasjonen av simuleringsfunksjonene:
+
+\begin{lstlisting}[language=Python, caption=Implementasjon av simulering]
+# Simuleringsparametre
+t0, tf = 0, 100
+dt = 0.01
+t = np.arange(t0, tf+dt, dt)
+n = len(t)
+
+# Konstant kontrollsignal
+u = 1.0
+
+# Deterministisk simulering
+def run_deterministic(Phi, Lambda, u, n):
+    """Simulerer det deterministiske systemet."""
+    x = np.zeros((3, n))
+    for k in range(n-1):
+        x[:, k+1] = Phi @ x[:, k] + Lambda * u
+    return x
+
+# Stokastisk simulering
+def run_stochastic(Phi, Lambda, Ga, u, n):
+    """Simulerer det stokastiske systemet med prosesstøy."""
+    x = np.zeros((3, n))
+    np.random.seed(0)  # For reproduserbarhet
+    for k in range(n-1):
+        v_k = np.random.randn(3)  # Standard normalfordelt støy
+        x[:, k+1] = Phi @ x[:, k] + Lambda * u + Ga @ v_k
+    return x
+
+# Kjør simuleringene
+x_d = run_deterministic(Phi, Lambda, u, n)
+x_s = run_stochastic(Phi, Lambda, Ga, u, n)
+
+# Plotting
+plt.figure(figsize=(10, 6))
+plt.plot(t, x_d[1, :], 'b-', label='Deterministisk hastighet')
+plt.plot(t, x_s[1, :], 'r-', label='Stokastisk hastighet')
+plt.plot(t, u * np.ones_like(t), 'g--', label='Kontrollsignal $u$')
+plt.xlabel('Tid [s]')
+plt.ylabel('Hastighet [m/s]')
+plt.title('Deterministisk vs Stokastisk Simulering')
+plt.legend()
+plt.grid(True)
+plt.savefig('task3_simulation.png')
+plt.show()
+\end{lstlisting}
+\clearpage
+Implementasjonen inneholder to funksjoner:
+\begin{itemize}
+    \item \texttt{run\_deterministic}: Implementerer den deterministiske simuleringen ved å iterativt oppdatere tilstandsvektoren basert på den diskrete systemligningen uten støyledd.
+    \item \texttt{run\_stochastic}: Implementerer den stokastiske simuleringen ved å legge til tilfeldig støy $v_k$ trukket fra en normalfordeling for hvert tidssteg.
+\end{itemize}
+
+Begge funksjonene returnerer hele tilstandshistorien, som deretter plottes for sammenligning.
+
+\subsection{Resultater og diskusjon}
+Figur \ref{fig:task3_plot} viser resultatene fra både den deterministiske og stokastiske simuleringen, med fokus på hastighetstilstanden $x_2$. Kontrollsignalet $u = 1$ er også plottet som referanse.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=1\textwidth]{task3_simulation.png}
+    \caption{Simulering av deterministisk og stokastisk hastighet $x_2(k)$ sammen med kontrollsignalet $u$.}
+    \label{fig:task3_plot}
+\end{figure}
+
+Den stokastiske simuleringen demonstrerer hvordan prosesstøy kan påvirke et fysisk system selv når kontrollsignalet er konstant. Dette er en realistisk representasjon av mange praktiske systemer, der uforutsigbare eksterne faktorer og interne forstyrrelser kan føre til avvik fra ideell oppførsel. Simuleringen bekrefter også at til tross for støy, opprettholder systemet sin grunnleggende dynamiske karakter og konvergerer mot de forventede steady-state-verdiene i gjennomsnitt.
+\clearpage
+\section{Optimal Kalman Filter}
+
+I denne delen skal vi implementere et optimalt Kalman filter for systemet. Vi starter med en tidoppdatering og kjører tidoppdateringer med en frekvens på 100 Hz (hvert steg med $\Delta t = 0.01$ s) og målingsoppdateringer med 1 Hz (hvert hele sekund).
+\subsection{Kalman Filter-ligninger}
+
+Kalman filteret består av to steg: tidoppdatering og målingsoppdatering. Ved tidoppdatering (Time Update, TU) predikerer vi systemets tilstand, og ved målingsoppdatering (Measurement Update, MU) korrigerer vi prediksjonen ved å ta målinger i betraktning.
+\\\\
+Tidoppdatering (prediksjonssteget):
+\begin{align}
+\bar{x}_{k+1} &= \Phi \hat{x}_k + \Lambda u_k \\
+\bar{P}_{k+1} &= \Phi \hat{P}_k \Phi^T + \Gamma Q \Gamma^T
+\end{align}
+\\\\
+Målingsoppdatering (korreksjonssteget):
+\begin{align}
+K_k &= \bar{P}_k H^T (H \bar{P}_k H^T + R)^{-1} \\
+\hat{x}_k &= \bar{x}_k + K_k (z_k - H \bar{x}_k) \\
+\hat{P}_k &= (I - K_k H) \bar{P}_k
+\end{align}
+
+hvor
+\begin{itemize}
+    \item $\bar{x}_k$ er a-priori tilstandsestimat
+    \item $\hat{x}_k$ er a-posteriori tilstandsestimat
+    \item $\bar{P}_k$ er a-priori kovariansmatrise for estimatfeilen
+    \item $\hat{P}_k$ er a-posteriori kovariansmatrise for estimatfeilen
+    \item $K_k$ er Kalman-forsterkning
+    \item $z_k$ er målingen
+    \item $\Phi, \Lambda, \Gamma, H, Q, R$ er system- og målingsmatriser
+\end{itemize}
+\clearpage
+\subsection{Implementasjon}
+
+\begin{lstlisting}[language=Python, caption=Implementasjon av Kalman filter]
+def kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n):
+    # Dimensjoner
+    n_states = Phi.shape[0]
+    
+    # Initialiserer tilstandsvektorer
+    x_bar = np.zeros((n_states, n))  # A-priori estimater
+    x_hat = np.zeros((n_states, n))  # A-posteriori estimater
+    
+    # Initialiserer kovariansmatriser
+    P_bar = np.zeros((n, n_states, n_states))  # A-priori kovarians
+    P_hat = np.zeros((n, n_states, n_states))  # A-posteriori kovarians
+    
+    # Initialtilstand
+    x_bar[:, 0] = np.zeros(n_states)
+    P_bar[0] = P0
+    
+    # Prosesstøykovarians
+    S = Ga @ Ga.T
+    
+    # Kalman filter-løkke
+    for k in range(n-1):
+        # Målingsoppdatering (kun ved spesifikke tidspunkter)
+        if k % mi == 0:
+            km = k // mi
+            
+            # Beregner Kalman-forsterkning
+            K = P_bar[k] @ H.T @ np.linalg.inv(H @ P_bar[k] @ H.T + R)
+            
+            # Oppdaterer tilstandsestimat med måling
+            x_hat[:, k] = x_bar[:, k] + K @ (z[:, km] - H @ x_bar[:, k])
+            
+            # Oppdaterer feilkovarians
+            P_hat[k] = (np.eye(n_states) - K @ H) @ P_bar[k]
+        else:
+            # Ingen måling, kopierer bare a-priori estimat
+            x_hat[:, k] = x_bar[:, k]
+            P_hat[k] = P_bar[k]
+        
+        # Tidoppdatering for neste steg
+        x_bar[:, k+1] = Phi @ x_hat[:, k] + Lambda * u
+        P_bar[k+1] = Phi @ P_hat[k] @ Phi.T + S
+    
+    return x_bar, x_hat, P_bar, P_hat
+\end{lstlisting}
+
+For å generere målinger og kjøre Kalman-filteret:
+
+\begin{lstlisting}[language=Python, caption=Generering av målinger og kjøring av Kalman filter]
+# Kontrollsignal
+u = 1.0
+mi = 100  # Målingsintervall (1 Hz = hver 100. tidssteg med dt=0.01)
+nm = int(n / mi) + 1  # Antall målinger
+k_meas = np.arange(0, n, mi)  # Tidspunkter med målinger
+
+# Genererer målinger fra den stokastiske simuleringen
+z = H @ x_s[:, k_meas] + np.random.randn(1, nm) * np.sqrt(R)
+
+# Kjører Kalman filter
+x_bar, x_hat, P_bar, P_hat = kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+
+# Beregner standardavvik for plotting
+s_hat = np.sqrt(np.array([P_hat[k, 1, 1] for k in range(n)]))  # Hastighets std.avvik (posteriori)
+s_bar = np.sqrt(np.array([P_bar[k, 1, 1] for k in range(n)]))  # Hastighets std.avvik (priori)
+\end{lstlisting}
+i 
+\\\\
+Denne implementeringen følger Kalman filter-algoritme med noen viktige detaljer:
+
+\begin{itemize}
+    \item \textbf{Tidssteg vs. målingsintervall:} Vi oppdaterer tilstandsestimatet ved hvert tidssteg (0.01s), men tar kun målinger ved hvert hele sekund (hver 100. tidssteg).
+    \item \textbf{Målingsoppdatering:} Ved målingstidspunkter ($k \bmod mi = 0$) beregner vi Kalman-forsterkningen og oppdaterer tilstandsvektoren og kovariansmatrisen.
+    \item \textbf{Mellom målinger:} I tidsintervallet mellom målinger settes $\hat{x}_k = \bar{x}_k$ og $\hat{P}_k = \bar{P}_k$ siden ingen ny informasjon er tilgjengelig.
+    \item \textbf{Tidoppdatering:} Etter hver målingsoppdatering (eller mangel på den) propagerer vi tilstanden fremover i tid ved hjelp av systemmodellen.
+\end{itemize}
+
+\clearpage
+\subsection{Resultater og analyse}
+
+Under ser man tre plott som viser:
+\begin{enumerate}
+    \item Hastighet: $x_2$, $\bar{x}_2$, $\hat{x}_2$, $u$
+    \item Filtrerte hastighetsfeil: $x_2 - \hat{x}_2$ og $\pm\hat{s}_2$
+    \item Predikerte hastighetsfeil: $x_2 - \bar{x}_2$ og $\pm\bar{s}_2$
+\end{enumerate}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=1\textwidth]{task4_kalman_filter.png}
+    \caption{Kalman filter-resultater. Øverst: Hastighetsestimater. Midten: Filtrerte hastighetsfeil. Nederst: Predikerte hastighetsfeil.}
+    \label{fig:kalman_filter}
+\end{figure}
+\clearpage
+\subsection{Diskusjon av resultater}
+
+Figur \ref{fig:kalman_filter} viser resultatene fra Kalman filter-implementasjonen:
+
+\begin{itemize}
+    \item Det øverste plottet viser hastighetsestimatene. Vi ser at både $\bar{x}_2$ og $\hat{x}_2$ følger den sanne hastigheten $x_2$ etter en kort innsvingningsperiode. Ved målingstidspunkter ser vi at $\hat{x}_2$ oppdateres basert på nye målinger.
+    
+    \item Det midterste plottet viser filtrerte hastighetsfeil ($x_2 - \hat{x}_2$) med standardavvik $\hat{s}_2$. Feilene holder seg hovedsakelig innenfor ett standardavvik, noe som indikerer at filteret gir pålitelige usikkerhetsestimater.
+    
+    \item Det nederste plottet viser predikerte hastighetsfeil ($x_2 - \bar{x}_2$) med standardavvik $\bar{s}_2$. Disse feilene er generelt større enn de filtrerte feilene siden de representerer usikkerheten før målingsoppdateringer.
+\end{itemize}
+\clearpage
+\section{Monte Carlo-simulering av optimalt system}
+I denne delen utfører vi Monte Carlo-simuleringer for å analysere ytelsen til det optimale Kalman-filteret implementert i seksjon 4. Målet er å estimere forventet verdi $E\{\hat{e}_k\}$ og kovarians $\text{Cov}\{\hat{e}_k\}$ for estimatfeilen $\hat{e}_k = x_k - \hat{x}_k$, der $x_k$ er den sanne tilstanden og $\hat{x}_k$ er a posteriori-estimatet fra Kalman-filteret. Vi fokuserer på hastigheten $x_2$ og genererer et sett med baner $\hat{e}_k^j = x^j(k) - \hat{x}^j(k)$ for $j=1, 2, \ldots, N$. Deretter beregner vi $\hat{m}_k^N$ og $\hat{P}_k^N$ rekursivt, og standardavviket $\hat{s}^N = \sqrt{\text{diag}(\hat{P}^N)}$.
+
+\subsection{Teori og metode}
+Monte Carlo-simuleringer innebærer å kjøre $N$ uavhengige simuleringer av systemet for å estimere statistiske egenskaper. For hver bane $j$:
+\begin{itemize}
+    \item Simuler en ny stokastisk prosess ved å trekke initialtilstand $x_0 \sim \mathcal{N}(0, \hat{P}_0)$ og prosess-støy $v_k \sim \mathcal{N}(0, \hat{Q})$.
+    \item Generer målinger $z_k = H x_k + w_k$, der $w_k \sim \mathcal{N}(0, R)$.
+    \item Kjør Kalman-filteret for å få a priori- ($\bar{x}_k$) og a posteriori- ($\hat{x}_k$) estimater.
+    \item Beregn feilene $\hat{e}_k^j = x_k^j - \hat{x}_k^j$ og $\bar{e}_k^j = x_k^j - \bar{x}_k^j$.
+\end{itemize}
+
+Forventet verdi og kovarians estimeres som:
+\begin{equation}
+\hat{m}_k^N = \frac{1}{N} \sum_{j=1}^N \hat{e}_k^j,
+\end{equation}
+\begin{equation}
+\hat{P}_k^N = \frac{1}{N-1} \sum_{j=1}^N (\hat{e}_k^j - \hat{m}_k^N)(\hat{e}_k^j - \hat{m}_k^N)^T.
+\end{equation}
+
+Standardavviket for hastigheten er:
+\begin{equation}
+\hat{s}_2^N = \sqrt{\hat{P}_{k,22}^N},
+\end{equation}
+hvor $\hat{P}_{k,22}^N$ er kovariansmatrisens element for hastighet. Dette sammenlignes med Kalman-filterets standardavvik $\hat{s}_2 = \sqrt{\hat{P}_{k,22}}$, som ble beregnet i seksjon 4.
+\clearpage
+\subsection{Implementasjon}
+Implementasjonen er vist nedenfor:
+
+\lstset{language=Python, numbers=left}
+\begin{lstlisting}
+# Monte Carlo-simulering
+def monte_carlo(N, Phi, Lambda, Ga, P0, H, R, mi, u, n):
+    n_states = Phi.shape[0]
+    nm = int(n / mi) + 1  # Antall målinger
+    k_meas = np.arange(0, n, mi)  # Målingstidspunkter
+
+    # Lagre resultater for hver bane
+    X_bar = np.zeros((N, n_states, n))  # A priori estimater
+    X_hat = np.zeros((N, n_states, nm))  # A posteriori estimater
+    X_true = np.zeros((N, n_states, n))  # Sanne tilstander
+    E_bar = np.zeros((N, n_states, n))  # A priori feil
+    E_hat = np.zeros((N, n_states, nm))  # A posteriori feil
+
+    for j in range(N):
+        # Generer ny stokastisk bane
+        x = np.zeros((n_states, n))
+        x[:, 0] = np.random.multivariate_normal(np.zeros(n_states), P0)
+        
+        # Korrekt form for støyvektoren - må matche Ga's kolonner
+        for k in range(n-1):
+            # Generer støy for armaturstrømmen
+            v_k = np.random.normal(0, np.sqrt(0.02))  # Q_hat = 0.02
+            
+            v_vec = np.zeros((3, 1))
+            v_vec[2, 0] = v_k  # Støy påvirker kun tredje tilstand (armaturstrøm)
+            
+            # Utfør tilstandsoppdateringen
+            x[:, k+1:k+2] = Phi @ x[:, k:k+1] + Lambda.reshape(3, 1) * u + Ga @ v_vec
+        
+        X_true[j] = x
+
+        # Generer målinger
+        z = np.zeros((1, nm))
+        for i in range(nm):
+            k = k_meas[i]
+            if k < n:
+                z[:, i] = H @ x[:, k].reshape(n_states, 1) + np.random.randn(1) * np.sqrt(R)
+
+        # Kjør Kalman-filter
+        x_bar, x_hat, _, _, update_times = kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+        X_bar[j] = x_bar
+\end{lstlisting}
+\begin{lstlisting}
+        # Håndter x_hat som kan ha ulik lengde
+        for i, k in enumerate(update_times):
+            if i < nm and k < n:
+                X_hat[j, :, i] = x_hat[:, i]
+
+        # Beregn feil
+        E_bar[j] = x - x_bar
+        for i, k in enumerate(update_times):
+            if i < nm and k < n:
+                E_hat[j, :, i] = x[:, k] - x_hat[:, i]
+
+    # Beregn statistikk
+    m_hat = np.mean(E_hat, axis=0)  # Gjennomsnittlig a posteriori feil
+    P_hat_N = np.zeros((nm, n_states, n_states))
+    for k in range(nm):
+        for j in range(N):
+            e = E_hat[j, :, k] - m_hat[:, k]
+            P_hat_N[k] += np.outer(e, e)
+        if N > 1:  # Unngå divisjon med null
+            P_hat_N[k] /= (N - 1)
+    
+    s_hat_N = np.sqrt(np.maximum(0, P_hat_N[:, 1, 1]))  # Standardavvik for hastighet (unngå negative verdier)
+    
+    # Hent standardavvik fra Kalman-filteret (antatt at dette er implementert i din kalman_filter funksjon)
+    _, _, _, s_hat, _ = kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+    
+    return X_true, X_bar, X_hat, E_bar, E_hat, m_hat, s_hat_N, s_hat, update_times
+
+# Kjør Monte Carlo for N=10 og N=100
+u = 1.0
+mi = 100
+N_10 = 10
+N_100 = 100
+
+X_true_10, X_bar_10, X_hat_10, E_bar_10, E_hat_10, m_hat_10, s_hat_N_10, s_hat_10, update_times = monte_carlo(N_10, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+X_true_100, X_bar_100, X_hat_100, E_bar_100, E_hat_100, m_hat_100, s_hat_N_100, s_hat_100, update_times = monte_carlo(N_100, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+\end{lstlisting}
+\clearpage
+\subsection{Resultater og analyse}
+Resultatene fra Monte Carlo-simuleringene presenteres nedenfor.
+\\\\
+\textbf{Hastighetsestimater og hastighetsfeil for $N=10$ baner:} \newline Figur \ref{fig:mc_plot1} viser a priori- ($\bar{x}_2$, røde stiplede linjer) og a posteriori- ($\hat{x}_2$, grønne linjer) estimater for hastighet for 10 baner. A priori-estimatene varierer noe mellom baner, men holder seg nær $x_2 \approx 1 \, \text{m/s}$. A posteriori-estimatene, som oppdateres ved målinger (hver hele sekund), er mer nøyaktige. Figur \ref{fig:mc_plot2} viser tilhørende a priori- ($x_2 - \bar{x}_2$, røde stiplede linjer) og a posteriori- ($x_2 - \hat{x}_2$, grønne linjer) feil.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{mc_plot1.png}
+        \caption{Hastighetsestimater for $N=10$ baner.}
+        \label{fig:mc_plot1}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{mc_plot2.png}
+        \caption{Hastighetsfeil for $N=10$ baner.}
+        \label{fig:mc_plot2}
+    \end{minipage}
+\end{figure}
+
+Figur \ref{fig:mc_plot1} viser at Kalman-filteret effektivt korrigerer prediksjonene ved måletidspunkter, noe som gir mer nøyaktige a posteriori-estimater. Figur \ref{fig:mc_plot2} bekrefter dette, da a posteriori-feilene er mindre, noe som understreker verdien av måleoppdateringer. Variasjonen i både estimater og feil illustrerer effekten av prosess-støy på systemet.
+\clearpage
+\textbf{Statistikk for $N=10$ og $N=100$:} \newline Figur \ref{fig:mc_plot3} viser gjennomsnittlig feil ($\hat{m}_2^N$), Monte Carlo-standardavvik ($\hat{s}_2^N$), og Kalman-filterets standardavvik ($\hat{s}_2$) for $N=10$. Den gjennomsnittlige feilen svinger rundt null, men har variasjon pga. få baner. $\hat{s}_2^N$ er noe høyere enn $\hat{s}_2$. Figur \ref{fig:mc_plot4} viser det samme for $N=100$, der $\hat{m}_2^N$ er nærmere null og $\hat{s}_2^N$ er mer stabilt, men fortsatt høyere enn $\hat{s}_2$.
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{mc_plot3.png}
+        \caption{Statistikk for $N=10$.}
+        \label{fig:mc_plot3}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{mc_plot4.png}
+        \caption{Statistikk for $N=100$.}
+        \label{fig:mc_plot4}
+    \end{minipage}
+\end{figure}
+
+Figur \ref{fig:mc_plot3} indikerer at Kalman-filteret er unbiased, men $\hat{s}_2 > \hat{s}_2^N$ er uventet, da filterets kovariansberegninger vanligvis er optimistiske.. Dette kan skyldes for høye verdier for $\hat{Q}$ eller $R$ i filteret. Figur \ref{fig:mc_plot4} viser at $N=100$ gir mer robuste estimater, men forholdet mellom $\hat{s}_2$ og $\hat{s}_2^N$ vedvarer.
+
+\section{Feilbudsjett for optimalt Kalman-filter}
+
+I denne delen har vi gjennomført et feilbudsjett for det optimale Kalman-filteret. Dette innebærer å analysere hvordan ulike feilkilder bidrar til den totale estimeringsfeilen. Når Kalman-filteret brukes, vil alle feilkildene bidra til feilen i filterestimatet. Et feilbudsjett gir en oversikt som viser bidragene fra hver feilkilde (eller gruppe av feilkilder) til den totale feilen.
+
+\subsection{Teori og metode}
+
+Feilbudsjettet er basert på feildynamikken i Kalman-filteret. Når simuleringsmodellen $M_S$ og filtermodellen $M_F$ er like, kan vi forenkle ligningene. Siden vårt system ikke har noen modellering av systematiske feil ($\Delta F = 0$ og $\Delta H = 0$), kan feildynamikken beskrives med følgende ligninger:
+
+\textbf{Tidsoppdatering (TU):}
+\begin{equation}
+\dot{\bar{P}}_e = F\bar{P}_e + \bar{P}_eF^T + GQG^T, \quad t \in [\hat{t}_k, \bar{t}_{k+1}]
+\end{equation}
+
+\textbf{Målingsoppdatering (MU):}
+\begin{equation}
+\hat{P}_e^k = (I - K_kH)\hat{P}_e^k(\bar{t}_k)(I - K_kH)^T + K_kRK_k^T
+\end{equation}
+
+\textbf{Initialverdi (IV):}
+\begin{equation}
+\hat{P}_e^0 = \hat{P}^*(\hat{t}_0) = \bar{P}^*_0
+\end{equation}
+
+I det diskrete tilfellet bruker vi følgende ligninger:
+
+\textbf{Tidsoppdatering:}
+\begin{equation}
+\bar{P}_{e,k+1} = \Phi \hat{P}_{e,k} \Phi^T + S
+\end{equation}
+der $\Phi$ er den diskrete systemmatrisen og $S = \Gamma Q \Gamma^T$ er den diskrete prosess-støykovariansen.
+
+\textbf{Målingsoppdatering:}
+\begin{equation}
+\hat{P}_{e,k} = (I - K_kH)\bar{P}_{e,k}(I - K_kH)^T + K_kRK_k^T
+\end{equation}
+der $K_k = \bar{P}_{e,k}H^T(H\bar{P}_{e,k}H^T + R)^{-1}$ er Kalman-forsterkningen.
+
+For å lage feilbudsjettet, separerer vi feilkovariansen i bidrag fra hver feilkilde:
+\begin{itemize}
+    \item $P_{e,\text{process}}$: Feilkovarians fra prosesstøy
+    \item $P_{e,\text{meas}}$: Feilkovarians fra målingsstøy
+    \item $P_{e,\text{init}}$: Feilkovarians fra initialtilstand
+\end{itemize}
+
+Totalt standardavvik for hver tilstand er kvadratroten av summen av variansene (RMS-sum) fra hver feilkilde:
+\begin{equation}
+s_{\text{total},i} = \sqrt{(s_{\text{process},i})^2 + (s_{\text{meas},i})^2 + (s_{\text{init},i})^2}
+\end{equation}
+der $s_{x,i} = \sqrt{P_{e,x}(i,i)}$ er standardavviket for tilstand $i$ fra feilkilde $x$.
+
+\subsection{Implementasjon}
+
+For å implementere feilbudsjettet, propagerer vi hver feilkovarians separat gjennom systemet. Vi starter med følgende initialverdier:
+\begin{equation}
+P_{e,\text{process}}(0) = 0, \quad P_{e,\text{meas}}(0) = 0, \quad P_{e,\text{init}}(0) = P_0
+\end{equation}
+
+For hvert tidssteg $k$, propagerer vi feilkovariansene ved:
+\begin{align}
+P_{e,\text{process}}(k+1) &= \Phi P_{e,\text{process}}(k) \Phi^T + S \\
+P_{e,\text{meas}}(k+1) &= \Phi P_{e,\text{meas}}(k) \Phi^T \\
+P_{e,\text{init}}(k+1) &= \Phi P_{e,\text{init}}(k) \Phi^T
+\end{align}
+
+Ved målingstidspunkter oppdaterer vi feilkovariansene med:
+\begin{align}
+P_{e,\text{process}}(k+1) &= (I - K_{k+1}H)P_{e,\text{process}}(k+1)(I - K_{k+1}H)^T \\
+P_{e,\text{meas}}(k+1) &= (I - K_{k+1}H)P_{e,\text{meas}}(k+1)(I - K_{k+1}H)^T + K_{k+1}RK_{k+1}^T \\
+P_{e,\text{init}}(k+1) &= (I - K_{k+1}H)P_{e,\text{init}}(k+1)(I - K_{k+1}H)^T
+\end{align}
+
+Til slutt beregner vi standardavvik for hver tilstand og hver feilkilde ved å ta kvadratroten av diagonalelementene i feilkovariansmatrisene.
+
+Koden for implementasjonen av feilbudsjettet er vist i Listing \ref{code:error_budget}.
+
+\begin{lstlisting}[language=Python, caption=Implementasjon av feilbudsjett, label=code:error_budget]
+def error_budget(F, G, H, Q_hat, R, P0, t0, tf, dt):
+    # Tidsdimensjoner
+    t = np.arange(t0, tf + dt, dt)
+    n = len(t)
+    
+    # Diskretisere systemet
+    Phi, Lambda = c2d_deterministic(F, np.zeros((3, 1)), dt)
+    Ga = c2d_stochastic(F, G, Q_hat, dt)
+    S = Ga @ Ga.T
+    
+    # Målingsintervall (1 Hz)
+    mi = int(1 / dt)  # 100 tidssteg = 1 sekund
+    
+    # Initialiser feilkovarianser for hver kilde
+    Pe_process = np.zeros((n, 3, 3))
+    Pe_meas = np.zeros((n, 3, 3))
+    Pe_init = np.zeros((n, 3, 3))
+    
+    # Sett initialverdier
+    Pe_init[0] = P0
+    
+    # Gjør R til en 1x1 matrise for matrisemultiplikasjon
+    R_matrix = np.array([[R]])
+    
+    # Kalman filter kovarianser
+    P_bar = np.zeros((n, 3, 3))
+    P_hat = np.zeros((n, 3, 3))
+    
+    # Initialiser
+    P_bar[0] = P0
+    P_hat[0] = P0
+    
+    # Tidssteg-løkke for å propagere feilkovariansene
+    for k in range(n-1):
+        # Tidoppdatering for hver kilde
+        Pe_process[k+1] = Phi @ Pe_process[k] @ Phi.T + S
+        Pe_init[k+1] = Phi @ Pe_init[k] @ Phi.T
+        Pe_meas[k+1] = Phi @ Pe_meas[k] @ Phi.T
+        
+        # Kalman filter kovarians propagering
+        P_bar[k+1] = Phi @ P_hat[k] @ Phi.T + S
+        
+        # Målingsoppdatering ved hvert målingstidspunkt
+        if (k+1) % mi == 0:
+            # Beregn Kalman-forsterkning
+            K = P_bar[k+1] @ H.T @ np.linalg.inv(H @ P_bar[k+1] @ H.T + R_matrix)
+            
+            # Oppdater feilkovarianser
+            I_KH = np.eye(3) - K @ H
+            
+            Pe_process[k+1] = I_KH @ Pe_process[k+1] @ I_KH.T
+            Pe_init[k+1] = I_KH @ Pe_init[k+1] @ I_KH.T
+            Pe_meas[k+1] = I_KH @ Pe_meas[k+1] @ I_KH.T + K @ R_matrix @ K.T
+            
+            # Kalman filter
+            P_hat[k+1] = I_KH @ P_bar[k+1] @ I_KH.T + K @ R_matrix @ K.T
+        else:
+            # Ingen måling, kopier bare a-priori kovarians
+            P_hat[k+1] = P_bar[k+1]
+    
+    # Beregn standardavvik
+    s_pos_process = np.sqrt(Pe_process[:, 0, 0])
+    s_pos_meas = np.sqrt(Pe_meas[:, 0, 0])
+    s_pos_init = np.sqrt(Pe_init[:, 0, 0])
+    
+    # Beregn total feilkovarians (RMS-sum av standardavvik)
+    s_pos_total = np.sqrt(s_pos_process**2 + s_pos_meas**2 + s_pos_init**2)
+    
+    # Andre standardavvik beregnes på samme måte...
+    
+    return (t, standardavvik...)
+\end{lstlisting}
+
+\subsection{Resultater og analyse}
+
+Feilbudsjettet viser hvordan ulike feilkilder bidrar til usikkerheten i tilstandsestimatene. Figurene \ref{fig:error_budgets} viser feilbudsjettene for posisjon, hastighet og armaturstrøm.
+
+\begin{figure}[!htb]
+\centering
+\begin{minipage}{0.32\textwidth}
+    \includegraphics[width=\textwidth]{task6_position_error_budget.png}
+    \caption*{(a) Feilbudsjett for posisjon}
+\end{minipage}
+\begin{minipage}{0.32\textwidth}
+    \includegraphics[width=\textwidth]{task6_velocity_error_budget.png}
+    \caption*{(b) Feilbudsjett for hastighet}
+\end{minipage}
+\begin{minipage}{0.32\textwidth}
+    \includegraphics[width=\textwidth]{task6_current_error_budget.png}
+    \caption*{(c) Feilbudsjett for armaturstrøm}
+\end{minipage}
+\caption{Feilbudsjetter for de tre tilstandene. Grafene viser bidraget fra hver feilkilde (prosesstøy, målingsstøy, initialtilstand) til det totale standardavviket for estimatene.}
+\label{fig:error_budgets}
+\end{figure}
+
+Fra feilbudsjettene kan vi observere følgende:
+
+\begin{itemize}
+    \item \textbf{Posisjon (a):} Initialtilstanden (blå) dominerer tidlig, men avtar over tid. Målingsstøy (grønn) er en betydelig bidragsyter og holder seg konstant etter at systemet når steady-state. Prosesstøy (rød) øker gradvis over tid.
+    
+    \item \textbf{Hastighet (b):} Bidraget fra initialtilstanden reduseres raskere for hastighet enn for posisjon. Prosesstøy har større innvirkning på hastighetsestimatet, spesielt over tid. Steady-state-verdien for totalt standardavvik er lavere for hastighet enn for posisjon.
+    
+    \item \textbf{Armaturstrøm (c):} Prosesstøyen har størst innvirkning på strømestimatet, siden prosess-støyen direkte påvirker armaturstrømmen i modellen. Bidraget fra initialtilstanden reduseres svært raskt, noe som indikerer hurtig konvergens. Målingsstøyen har mindre direkte innvirkning på strømestimatet.
+\end{itemize}
+
+Figur \ref{fig:rms_vs_kalman} sammenligner RMS-summen av standardavvikene fra feilbudsjettet med standardavviket beregnet av Kalman-filteret for posisjonsestimatet.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=0.6\textwidth]{task6_rms_vs_kalman.png}
+\caption{Sammenligning av RMS-sum av standardavvik for posisjonsfeil med Kalman-filterets standardavvik for posisjon.}
+\label{fig:rms_vs_kalman}
+\end{figure}
+
+Det er en god overensstemmelse mellom RMS-summen og Kalman-filterets standardavvik, hvilket bekrefter at feilbudsjettet er korrekt implementert. Fluktuasjonene i kurvene faller sammen med målingstidspunktene (hver sekund), noe som viser effekten av målingsoppdateringer på estimatets usikkerhet.
+
+\subsection{Diskusjon av resultater}
+
+Feilbudsjettet gir oss verdifull innsikt i hvordan ulike feilkilder påvirker estimatnøyaktigheten for Kalman-filteret:
+
+\begin{enumerate}
+    \item \textbf{Posisjon:} Siden posisjonen er den direkte målte tilstanden, har målingsstøyen stor innvirkning. Over tid blir prosesstøyen også en betydelig faktor, noe som reflekterer hvordan usikkerhet i armaturstrømmen propagerer gjennom systemdynamikken.
+    
+    \item \textbf{Hastighet:} Estimatet for hastighet er mer påvirket av prosesstøy enn posisjon. Dette skyldes at hastigheten ikke måles direkte, så Kalman-filteret må utlede den fra posisjonsmålinger, noe som gjør den mer sensitiv for prosesstøy.
+    
+    \item \textbf{Armaturstrøm:} For armaturstrømmen er prosesstøyen den dominerende feilkilden, siden støyen direkte påvirker denne tilstanden i modellen. Initialtilstandens bidrag forsvinner raskt.
+\end{enumerate}
+
+En viktig observasjon er at målingsstøyen har en konstant innvirkning på estimatene etter at systemet når steady-state, mens bidraget fra prosesstøyen fortsetter å øke noe. Dette indikerer at for lengre tidshorisonter kan prosesstøyen bli den dominerende feilkilden, og forbedringer i prosessnøyaktigheten kan gi større utslag på estimatnøyaktigheten enn forbedringer i målingsnøyaktigheten.
+
+Denne analysen viser hvordan et feilbudsjett kan være et nyttig verktøy i systemdesign ved å identifisere de største bidragsyterne til estimatfeilen, slik at vi kan fokusere innsatsen på å forbedre de riktige aspektene av systemet for å oppnå best mulig ytelse.
+
+\end{document}
