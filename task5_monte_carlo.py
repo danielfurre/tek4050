@@ -2,228 +2,148 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.linalg import expm
-from scipy.integrate import solve_ivp
-
-# Importer nødvendige funksjoner fra dine tidligere filer
-from task2_discretization import c2d_deterministic, c2d_stochastic, cp2dpS
+from task1_simulation_model import t, n, P0, H, R
+from task2_discretization import Phi, Lambda, Ga, S
+from task3_simulation import x_s
 from task4_kalman_filter import kalman_filter
 
-def error_budget(F, G, H, Q_hat, R, P0, t0, tf, dt):
-    """
-    Kjør feilbudsjett for det optimale Kalman-filteret.
-    
-    Args:
-        F: Systemmatrise
-        G: Prosess-støymatrise
-        H: Målingsmatrise
-        Q_hat: Kontinuerlig prosesstøy-kovarians
-        R: Målingsstøy-kovarians
-        P0: Initial kovarians
-        t0: Starttid
-        tf: Sluttid
-        dt: Tidsskritt
-    
-    Returns:
-        time: Tidspunkter
-        s_pos_process: Standardavvik for posisjon fra prosesstøy
-        s_pos_meas: Standardavvik for posisjon fra målingsstøy
-        s_pos_init: Standardavvik for posisjon fra initialtilstand
-        s_vel_process: Standardavvik for hastighet fra prosesstøy
-        s_vel_meas: Standardavvik for hastighet fra målingsstøy
-        s_vel_init: Standardavvik for hastighet fra initialtilstand
-        s_curr_process: Standardavvik for strøm fra prosesstøy
-        s_curr_meas: Standardavvik for strøm fra målingsstøy
-        s_curr_init: Standardavvik for strøm fra initialtilstand
-        s_pos_total: Total standardavvik for posisjon
-        s_vel_total: Total standardavvik for hastighet
-        s_curr_total: Total standardavvik for strøm
-        s_pos_kalman: Kalman-filter standardavvik for posisjon
-    """
-    # Tidsdimensjoner
-    t = np.arange(t0, tf + dt, dt)
-    n = len(t)
-    
-    # Diskretisere systemet
-    Phi, Lambda = c2d_deterministic(F, np.zeros((3, 1)), dt)
-    S = cp2dpS(F, G, Q_hat, dt)
-    
-    # Målingsintervall (1 Hz)
-    mi = int(1 / dt)  # 100 tidssteg = 1 sekund
-    
-    # Initialiser feilkovarianser for hver kilde
-    # Prosesstøy
-    Pe_process = np.zeros((n, 3, 3))
-    # Målingsstøy
-    Pe_meas = np.zeros((n, 3, 3))
-    # Initialtilstand
-    Pe_init = np.zeros((n, 3, 3))
-    # Total
-    Pe_total = np.zeros((n, 3, 3))
-    
-    # Sett initialverdier
-    Pe_init[0] = P0
-    Pe_total[0] = P0
-    
-    # Kjør Kalman-filter for å få standardavvik fra filteret
-    # Generere dummy-målinger (vi trenger bare standardavvik)
-    nm = int(n / mi) + 1
-    z = np.zeros((1, nm))
-    x_bar, x_hat, P_bar, P_hat = kalman_filter(z, Phi, np.zeros((3, 1)), 
-                                              np.zeros((3, 3)), P0, 
-                                              H, R, mi, 0, n)
-    
-    # Tidssteg-løkke for å propagere feilkovariansene
-    for k in range(n-1):
-        # Tidoppdatering for hver kilde
-        # Prosesstøy
-        Pe_process[k+1] = Phi @ Pe_process[k] @ Phi.T + S
-        
-        # Initialtilstand
-        Pe_init[k+1] = Phi @ Pe_init[k] @ Phi.T
-        
-        # Målingsstøy
-        Pe_meas[k+1] = Phi @ Pe_meas[k] @ Phi.T
-        
-        # Målingsoppdatering ved hvert målingstidspunkt
-        if (k+1) % mi == 0:
-            # Beregn Kalman-forsterkning
-            K = P_bar[k+1] @ H.T @ np.linalg.inv(H @ P_bar[k+1] @ H.T + R)
-            
-            # Oppdater feilkovarianser
-            I_KH = np.eye(3) - K @ H
-            
-            # Prosesstøy
-            Pe_process[k+1] = I_KH @ Pe_process[k+1] @ I_KH.T + K @ R @ K.T
-            
-            # Initialtilstand
-            Pe_init[k+1] = I_KH @ Pe_init[k+1] @ I_KH.T
-            
-            # Målingsstøy
-            Pe_meas[k+1] = I_KH @ Pe_meas[k+1] @ I_KH.T + K @ R @ K.T
-    
-    # Beregn total feilkovarians (summen av alle kilder)
-    Pe_total = Pe_process + Pe_meas + Pe_init
-    
-    # Ekstraherer standardavvik
-    s_pos_process = np.sqrt(Pe_process[:, 0, 0])
-    s_pos_meas = np.sqrt(Pe_meas[:, 0, 0])
-    s_pos_init = np.sqrt(Pe_init[:, 0, 0])
-    s_pos_total = np.sqrt(Pe_total[:, 0, 0])
-    
-    s_vel_process = np.sqrt(Pe_process[:, 1, 1])
-    s_vel_meas = np.sqrt(Pe_meas[:, 1, 1])
-    s_vel_init = np.sqrt(Pe_init[:, 1, 1])
-    s_vel_total = np.sqrt(Pe_total[:, 1, 1])
-    
-    s_curr_process = np.sqrt(Pe_process[:, 2, 2])
-    s_curr_meas = np.sqrt(Pe_meas[:, 2, 2])
-    s_curr_init = np.sqrt(Pe_init[:, 2, 2])
-    s_curr_total = np.sqrt(Pe_total[:, 2, 2])
-    
-    # Standardavvik fra Kalman-filteret
-    s_pos_kalman = np.sqrt(np.array([P_hat[k, 0, 0] for k in range(n)]))
-    
-    return (t, s_pos_process, s_pos_meas, s_pos_init, 
-            s_vel_process, s_vel_meas, s_vel_init,
-            s_curr_process, s_curr_meas, s_curr_init,
-            s_pos_total, s_vel_total, s_curr_total, s_pos_kalman)
+# Monte Carlo-simulering
+def monte_carlo(N, Phi, Lambda, Ga, P0, H, R, mi, u, n):
+    n_states = Phi.shape[0]
+    nm = int(n / mi) + 1  # Antall målinger
+    k_meas = np.arange(0, n, mi)  # Målingstidspunkter
 
-def plot_error_budget_results(results):
-    """
-    Plotter resultatene fra feilbudsjettet.
-    
-    Args:
-        results: Resultatene fra error_budget-funksjonen
-    """
-    (t, s_pos_process, s_pos_meas, s_pos_init, 
-     s_vel_process, s_vel_meas, s_vel_init,
-     s_curr_process, s_curr_meas, s_curr_init,
-     s_pos_total, s_vel_total, s_curr_total, s_pos_kalman) = results
-    
-    # Plott 1: Feilbudsjett for posisjon
-    plt.figure(figsize=(10, 6))
-    plt.plot(t, s_pos_process, 'r-', label='Prosesstøy')
-    plt.plot(t, s_pos_meas, 'g-', label='Målingsstøy')
-    plt.plot(t, s_pos_init, 'b-', label='Initialtilstand')
-    plt.plot(t, s_pos_total, 'k--', label='Total (RMS)')
-    plt.xlabel('Tid [s]')
-    plt.ylabel('Standardavvik for posisjon [m]')
-    plt.title('Feilbudsjett for posisjon')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('task6_position_error_budget.png')
-    
-    # Plott 2: Feilbudsjett for hastighet
-    plt.figure(figsize=(10, 6))
-    plt.plot(t, s_vel_process, 'r-', label='Prosesstøy')
-    plt.plot(t, s_vel_meas, 'g-', label='Målingsstøy')
-    plt.plot(t, s_vel_init, 'b-', label='Initialtilstand')
-    plt.plot(t, s_vel_total, 'k--', label='Total (RMS)')
-    plt.xlabel('Tid [s]')
-    plt.ylabel('Standardavvik for hastighet [m/s]')
-    plt.title('Feilbudsjett for hastighet')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('task6_velocity_error_budget.png')
-    
-    # Plott 3: Feilbudsjett for armaturstrøm
-    plt.figure(figsize=(10, 6))
-    plt.plot(t, s_curr_process, 'r-', label='Prosesstøy')
-    plt.plot(t, s_curr_meas, 'g-', label='Målingsstøy')
-    plt.plot(t, s_curr_init, 'b-', label='Initialtilstand')
-    plt.plot(t, s_curr_total, 'k--', label='Total (RMS)')
-    plt.xlabel('Tid [s]')
-    plt.ylabel('Standardavvik for armaturstrøm [A]')
-    plt.title('Feilbudsjett for armaturstrøm')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('task6_current_error_budget.png')
-    
-    # Plott 4: Sammenligning av RMS-sum og Kalman-filter standardavvik
-    plt.figure(figsize=(10, 6))
-    plt.plot(t, s_pos_total, 'r-', label='Total (RMS-sum)')
-    plt.plot(t, s_pos_kalman, 'b--', label='Kalman-filter')
-    plt.xlabel('Tid [s]')
-    plt.ylabel('Standardavvik for posisjon [m]')
-    plt.title('RMS-sum vs. Kalman-filter standardavvik for posisjon')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('task6_rms_vs_kalman.png')
-    
-    plt.show()
+    # Lagre resultater for hver bane
+    X_bar = np.zeros((N, n_states, n))  # A priori estimater
+    X_hat = np.zeros((N, n_states, nm))  # A posteriori estimater
+    X_true = np.zeros((N, n_states, n))  # Sanne tilstander
+    E_bar = np.zeros((N, n_states, n))  # A priori feil
+    E_hat = np.zeros((N, n_states, nm))  # A posteriori feil
 
-def main():
-    # Systemparametre
-    T2 = 5.0
-    T3 = 1.0
-    
-    # Systemmatriser
-    F = np.array([[0, 1, 0],
-                 [0, -1/T2, 1/T2],
-                 [0, 0, -1/T3]])
-    
-    L = np.array([[0], [0], [1/T3]])
-    G = np.array([[0], [0], [1]])
-    H = np.array([[1, 0, 0]])
-    
-    # Støyparametre
-    Q_hat = 2 * 0.1**2
-    R = 1
-    
-    # Initial kovarians
-    P0 = np.diag([1, 0.1**2, 0.1**2])
-    
-    # Tidsparametre
-    t0 = 0
-    tf = 100
-    dt = 0.01
-    
-    # Kjør feilbudsjett
-    results = error_budget(F, G, H, Q_hat, R, P0, t0, tf, dt)
-    
-    # Plott resultater
-    plot_error_budget_results(results)
+    for j in range(N):
+        # Generer ny stokastisk bane
+        x = np.zeros((n_states, n))
+        x[:, 0] = np.random.multivariate_normal(np.zeros(n_states), P0)
+        
+        # Korrekt form for støyvektoren - må matche Ga's kolonner
+        for k in range(n-1):
+            # Generer støy for armaturstrømmen
+            v_k = np.random.normal(0, np.sqrt(0.02))  # Q_hat = 0.02
+            
+            # Viktig: Ga er en 3x3 matrise i vår implementasjon, så v_vec må være en 3x1 vektor
+            v_vec = np.zeros((3, 1))
+            v_vec[2, 0] = v_k  # Støy påvirker kun tredje tilstand (armaturstrøm)
+            
+            # Utfør tilstandsoppdateringen
+            x[:, k+1:k+2] = Phi @ x[:, k:k+1] + Lambda.reshape(3, 1) * u + Ga @ v_vec
+        
+        X_true[j] = x
 
-if __name__ == "__main__":
-    main()
+        # Generer målinger
+        z = np.zeros((1, nm))
+        for i in range(nm):
+            k = k_meas[i]
+            if k < n:
+                z[:, i] = H @ x[:, k].reshape(n_states, 1) + np.random.randn(1) * np.sqrt(R)
+
+        # Kjør Kalman-filter
+        x_bar, x_hat, _, _, update_times = kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+        X_bar[j] = x_bar
+        
+        # Håndter x_hat som kan ha ulik lengde
+        for i, k in enumerate(update_times):
+            if i < nm and k < n:
+                X_hat[j, :, i] = x_hat[:, i]
+
+        # Beregn feil
+        E_bar[j] = x - x_bar
+        for i, k in enumerate(update_times):
+            if i < nm and k < n:
+                E_hat[j, :, i] = x[:, k] - x_hat[:, i]
+
+    # Beregn statistikk
+    m_hat = np.mean(E_hat, axis=0)  # Gjennomsnittlig a posteriori feil
+    P_hat_N = np.zeros((nm, n_states, n_states))
+    for k in range(nm):
+        for j in range(N):
+            e = E_hat[j, :, k] - m_hat[:, k]
+            P_hat_N[k] += np.outer(e, e)
+        if N > 1:  # Unngå divisjon med null
+            P_hat_N[k] /= (N - 1)
+    
+    s_hat_N = np.sqrt(np.maximum(0, P_hat_N[:, 1, 1]))  # Standardavvik for hastighet (unngå negative verdier)
+    
+    # Hent standardavvik fra Kalman-filteret (antatt at dette er implementert i din kalman_filter funksjon)
+    _, _, _, s_hat, _ = kalman_filter(z, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+    
+    return X_true, X_bar, X_hat, E_bar, E_hat, m_hat, s_hat_N, s_hat, update_times
+
+# Kjør Monte Carlo for N=10 og N=100
+u = 1.0
+mi = 100
+N_10 = 10
+N_100 = 100
+
+# Fix for matplotlib escape sequences i labeler
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+
+X_true_10, X_bar_10, X_hat_10, E_bar_10, E_hat_10, m_hat_10, s_hat_N_10, s_hat_10, update_times = monte_carlo(N_10, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+X_true_100, X_bar_100, X_hat_100, E_bar_100, E_hat_100, m_hat_100, s_hat_N_100, s_hat_100, update_times = monte_carlo(N_100, Phi, Lambda, Ga, P0, H, R, mi, u, n)
+
+# Plotting
+t_m = t[update_times]  # Målingstidspunkter
+
+# Plott 1: N=10, hastighetsestimater
+plt.figure(figsize=(12, 8))
+for j in range(N_10):
+    plt.plot(t, X_bar_10[j, 1, :], 'r--', alpha=0.3, label='A priori $\\bar{x}_2$' if j == 0 else '')
+    plt.plot(t_m[:len(X_hat_10[j, 1, :])], X_hat_10[j, 1, :len(t_m)], 'g-', alpha=0.3, 
+             label='A posteriori $\\hat{x}_2$' if j == 0 else '')
+plt.xlabel('Tid (s)')
+plt.ylabel('Hastighet (m/s)')
+plt.title('Hastighetsestimater for $N=10$ baner')
+plt.legend()
+plt.grid(True)
+plt.savefig('mc_plot1.png')
+plt.show()
+
+# Plott 2: N=10, hastighetsfeil
+plt.figure(figsize=(12, 8))
+for j in range(N_10):
+    plt.plot(t, E_bar_10[j, 1, :], 'r--', alpha=0.3, label='A priori $x_2 - \\bar{x}_2$' if j == 0 else '')
+    plt.plot(t_m[:len(E_hat_10[j, 1, :])], E_hat_10[j, 1, :len(t_m)], 'g-', alpha=0.3, 
+             label='A posteriori $x_2 - \\hat{x}_2$' if j == 0 else '')
+plt.xlabel('Tid (s)')
+plt.ylabel('Feil (m/s)')
+plt.title('Hastighetsfeil for $N=10$ baner')
+plt.legend()
+plt.grid(True)
+plt.savefig('mc_plot2.png')
+plt.show()
+
+# Plott 3: N=10, statistikk
+plt.figure(figsize=(12, 8))
+plt.plot(t_m[:len(m_hat_10[1, :])], m_hat_10[1, :len(t_m)], label='$\\hat{m}_2^N$ (Gjennomsnittlig feil)')
+plt.plot(t_m[:len(s_hat_N_10)], s_hat_N_10[:len(t_m)], label='$\\hat{s}_2^N$ (Monte Carlo std)')
+plt.plot(t_m[:len(s_hat_10)], s_hat_10[:len(t_m)], 'k--', label='$\\hat{s}_2$ (Kalman std)')
+plt.xlabel('Tid (s)')
+plt.ylabel('Statistikk')
+plt.title('Statistikk for $N=10$')
+plt.legend()
+plt.grid(True)
+plt.savefig('mc_plot3.png')
+plt.show()
+
+# Plott 4: N=100, statistikk
+plt.figure(figsize=(12, 8))
+plt.plot(t_m[:len(m_hat_100[1, :])], m_hat_100[1, :len(t_m)], label='$\\hat{m}_2^N$ (Gjennomsnittlig feil)')
+plt.plot(t_m[:len(s_hat_N_100)], s_hat_N_100[:len(t_m)], label='$\\hat{s}_2^N$ (Monte Carlo std)')
+plt.plot(t_m[:len(s_hat_100)], s_hat_100[:len(t_m)], 'k--', label='$\\hat{s}_2$ (Kalman std)')
+plt.xlabel('Tid (s)')
+plt.ylabel('Statistikk')
+plt.title('Statistikk for $N=100$')
+plt.legend()
+plt.grid(True)
+plt.savefig('mc_plot4.png')
+plt.show()
